@@ -25,7 +25,7 @@ var overlay = document.getElementById("overlay");
 var elemLeft = canvas.offsetLeft,
     elemTop = canvas.offsetTop,
     context = canvas.getContext('2d'),
-    overlayContext= overlay.getContext('2d');
+    context= overlay.getContext('2d');
 
 function Point(x, y) {
     this.x = x;
@@ -101,17 +101,17 @@ var selector= {origin: new Point( drawing.canvasOrigin.x + drawing.canvasSize.x/
 // Add event listener for `click` events.
 overlay.addEventListener('mousemove', function (event) {
     
-    overlayContext.clearRect( 0, 0, drawing.canvasSize.x, drawing.canvasSize.y);
+    context.clearRect( 0, 0, drawing.canvasSize.x, drawing.canvasSize.y);
 
     selector.origin.x= event.x;
     selector.origin.y= event.y;
 
-    overlayContext.beginPath();
-    overlayContext.lineWidth="1";
-    overlayContext.strokeStyle="red";
+    context.beginPath();
+    context.lineWidth="1";
+    context.strokeStyle="red";
     //overlayContext.globalCompositeOperation="xor";
-    overlayContext.rect( selector.origin.x, selector.origin.y, selector.size.x, selector.size.y)
-    overlayContext.stroke();
+    context.rect( selector.origin.x, selector.origin.y, selector.size.x, selector.size.y)
+    context.stroke();
 }, false);
 
 
