@@ -1,0 +1,504 @@
+
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>3D Moving Spheres</title>
+    <style>
+        body {
+            margin: 0;
+            padding: 20px;
+            background-color: #1a1a1a;
+            font-family: Arial, sans-serif;
+            color: #ffffff;
+        }
+        #canvas {
+            display: block;
+            margin: 20px auto;
+            background-color: #000000;
+            border: 2px solid #444;
+        }
+        #info {
+            text-align: center;
+            margin-bottom: 10px;
+            font-size: 18px;
+        }
+        #controls {
+            text-align: center;
+            margin-bottom: 20px;
+            padding: 15px;
+            background-color: #2a2a2a;
+            border-radius: 8px;
+            max-width: 800px;
+            margin-left: auto;
+            margin-right: auto;
+        }
+        .control-group {
+            margin-bottom: 15px;
+        }
+        .control-group:last-child {
+            margin-bottom: 0;
+        }
+        #controls label {
+            display: inline-block;
+            margin-right: 10px;
+            font-size: 16px;
+        }
+        #rateSlider {
+            width: 300px;
+            vertical-align: middle;
+        }
+        #rateValue {
+            display: inline-block;
+            min-width: 100px;
+            font-weight: bold;
+            color: #4CAF50;
+        }
+        #shakeButton {
+            padding: 10px 30px;
+            font-size: 16px;
+            font-weight: bold;
+            background-color: #FF5722;
+            color: white;
+            border: none;
+            border-radius: 5px;
+            cursor: pointer;
+            transition: background-color 0.3s, transform 0.1s;
+        }
+        #shakeButton:hover {
+            background-color: #FF7043;
+        }
+        #shakeButton:active {
+            transform: scale(0.95);
+            background-color: #E64A19;
+        }
+    </style>
+</head>
+<body>
+<div id="controls">
+    <div class="control-group">
+        <label for="rateSlider">Spawn Rate:</label>
+        <input type="range" id="rateSlider" min="0" max="10" step="0.5" value="2">
+        <span id="rateValue">2.0 per second</span>
+    </div>
+    <div class="control-group">
+        <button id="shakeButton">Shake Spheres! 🌪️</button>
+    </div>
+</div>
+<div id="info">Spheres: <span id="sphereCount">0</span></div>
+<canvas id="canvas" width="800" height="600"></canvas>
+
+<script>
+    const canvas = document.getElementById('canvas');
+    const ctx = canvas.getContext('2d');
+    const sphereCountElement = document.getElementById('sphereCount');
+    const rateSlider = document.getElementById('rateSlider');
+    const rateValue = document.getElementById('rateValue');
+    const shakeButton = document.getElementById('shakeButton');
+
+    const spheres = [];
+    let sphereIdCounter = 0;
+    const GRAVITY = 0.3; // Gravity acceleration
+    const RESTITUTION = 0.7; // Coefficient of restitution for all collisions
+    const POSITION_CORRECTION_ITERATIONS = 3; // Multiple passes to resolve overlaps
+
+    let spawnRate = 2; // spheres per second
+    let spawnInterval = null;
+
+    // 3D camera settings
+    const camera = {
+        distance: 800,
+        angle: 0,
+        angleSpeed: 0.005, // Rotation speed
+        height: 300,
+        fov: 600
+    };
+
+    // 3D boundaries
+    const bounds = {
+        minX: 0,
+        maxX: 600,
+        minY: 0,
+        maxY: 600,
+        minZ: 0,
+        maxZ: 600
+    };
+
+    // Center of the scene
+    const center = {
+        x: bounds.maxX / 2,
+        y: bounds.maxY / 2,
+        z: bounds.maxZ / 2
+    };
+
+    // Update spawn rate based on slider
+    function updateSpawnRate() {
+        spawnRate = parseFloat(rateSlider.value);
+        rateValue.textContent = spawnRate.toFixed(1) + ' per second';
+
+        // Clear existing interval
+        if (spawnInterval) {
+            clearInterval(spawnInterval);
+            spawnInterval = null;
+        }
+
+        // Set new interval if rate > 0
+        if (spawnRate > 0) {
+            const intervalMs = 1000 / spawnRate;
+            spawnInterval = setInterval(addSphere, intervalMs);
+        }
+    }
+
+    // Shake all spheres
+    function shakeSpheres() {
+        spheres.forEach(sphere => {
+            // Add random velocity in all directions
+            const shakeStrength = 8; // Maximum velocity to add
+            sphere.vx += (Math.random() - 0.5) * shakeStrength;
+            sphere.vy += (Math.random() - 0.5) * shakeStrength;
+            sphere.vz += (Math.random() - 0.5) * shakeStrength;
+        });
+    }
+
+    // Listen for slider changes
+    rateSlider.addEventListener('input', updateSpawnRate);
+
+    // Listen for shake button clicks
+    shakeButton.addEventListener('click', shakeSpheres);
+
+    function updateCamera() {
+        camera.angle += camera.angleSpeed;
+        camera.x = center.x + Math.cos(camera.angle) * camera.distance;
+        camera.y = camera.height;
+        camera.z = center.z + Math.sin(camera.angle) * camera.distance;
+    }
+
+    function project3D(x, y, z) {
+        // Translate to camera-centered coordinates
+        const dx = x - center.x;
+        const dy = y - center.y;
+        const dz = z - center.z;
+
+        // Rotate around Y-axis
+        const cosA = Math.cos(camera.angle);
+        const sinA = Math.sin(camera.angle);
+        const rotX = dx * cosA - dz * sinA;
+        const rotZ = dx * sinA + dz * cosA;
+
+        // Apply camera distance
+        const finalZ = rotZ + camera.distance;
+
+        // Prevent division by zero or negative values
+        if (finalZ <= 10) {
+            return null;
+        }
+
+        // 3D to 2D projection
+        const scale = camera.fov / finalZ;
+        return {
+            x: rotX * scale + canvas.width / 2,
+            y: (dy - center.y + camera.height) * scale + canvas.height / 2,
+            scale: scale,
+            depth: finalZ
+        };
+    }
+
+    function drawFloorGrid() {
+        const gridSize = 60; // Grid cell size
+        const floorY = bounds.maxY; // Floor is at the bottom
+
+        ctx.strokeStyle = 'rgba(100, 100, 150, 0.3)';
+        ctx.lineWidth = 1;
+
+        // Draw grid lines parallel to X-axis
+        for (let z = bounds.minZ; z <= bounds.maxZ; z += gridSize) {
+            const start = project3D(bounds.minX, floorY, z);
+            const end = project3D(bounds.maxX, floorY, z);
+
+            if (start && end) {
+                ctx.beginPath();
+                ctx.moveTo(start.x, start.y);
+                ctx.lineTo(end.x, end.y);
+                ctx.stroke();
+            }
+        }
+
+        // Draw grid lines parallel to Z-axis
+        for (let x = bounds.minX; x <= bounds.maxX; x += gridSize) {
+            const start = project3D(x, floorY, bounds.minZ);
+            const end = project3D(x, floorY, bounds.maxZ);
+
+            if (start && end) {
+                ctx.beginPath();
+                ctx.moveTo(start.x, start.y);
+                ctx.lineTo(end.x, end.y);
+                ctx.stroke();
+            }
+        }
+
+        // Draw boundary box edges for better spatial reference
+        ctx.strokeStyle = 'rgba(150, 150, 200, 0.5)';
+        ctx.lineWidth = 2;
+
+        // Bottom edges
+        const corners = [
+            [bounds.minX, floorY, bounds.minZ],
+            [bounds.maxX, floorY, bounds.minZ],
+            [bounds.maxX, floorY, bounds.maxZ],
+            [bounds.minX, floorY, bounds.maxZ]
+        ];
+
+        for (let i = 0; i < corners.length; i++) {
+            const start = project3D(...corners[i]);
+            const end = project3D(...corners[(i + 1) % corners.length]);
+
+            if (start && end) {
+                ctx.beginPath();
+                ctx.moveTo(start.x, start.y);
+                ctx.lineTo(end.x, end.y);
+                ctx.stroke();
+            }
+        }
+    }
+
+    class Sphere {
+        constructor() {
+            this.x = Math.random() * (bounds.maxX - 40) + 20;
+            this.y = Math.random() * (bounds.maxY / 2); // Start in upper half
+            this.z = Math.random() * (bounds.maxZ - 40) + 20;
+            this.radius = Math.random() * 15 + 10; // 10-25 radius
+            this.vx = (Math.random() - 0.5) * 4;
+            this.vy = Math.random() * -2; // Start with slight upward velocity
+            this.vz = (Math.random() - 0.5) * 4;
+            this.hue = Math.random() * 360;
+            this.id = sphereIdCounter++;
+            this.mass = (4/3) * Math.PI * Math.pow(this.radius, 3); // Mass proportional to volume
+        }
+
+        update() {
+            // Apply gravity
+            this.vy += GRAVITY;
+
+            this.x += this.vx;
+            this.y += this.vy;
+            this.z += this.vz;
+
+            // Bounce off walls with restitution
+            if (this.x - this.radius < bounds.minX) {
+                this.x = bounds.minX + this.radius;
+                this.vx = Math.abs(this.vx) * RESTITUTION;
+            }
+            if (this.x + this.radius > bounds.maxX) {
+                this.x = bounds.maxX - this.radius;
+                this.vx = -Math.abs(this.vx) * RESTITUTION;
+            }
+            if (this.y - this.radius < bounds.minY) {
+                this.y = bounds.minY + this.radius;
+                this.vy = Math.abs(this.vy) * RESTITUTION;
+            }
+            if (this.y + this.radius > bounds.maxY) {
+                this.y = bounds.maxY - this.radius;
+                this.vy = -Math.abs(this.vy) * RESTITUTION;
+            }
+            if (this.z - this.radius < bounds.minZ) {
+                this.z = bounds.minZ + this.radius;
+                this.vz = Math.abs(this.vz) * RESTITUTION;
+            }
+            if (this.z + this.radius > bounds.maxZ) {
+                this.z = bounds.maxZ - this.radius;
+                this.vz = -Math.abs(this.vz) * RESTITUTION;
+            }
+
+            // Add friction on horizontal movement when on ground
+            if (this.y + this.radius >= bounds.maxY - 1) {
+                this.vx *= 0.98;
+                this.vz *= 0.98;
+            }
+        }
+
+        project() {
+            return project3D(this.x, this.y, this.z);
+        }
+
+        draw() {
+            const proj = this.project();
+
+            // Don't draw if projection failed or behind camera
+            if (!proj || proj.depth <= 0) return;
+
+            const projRadius = this.radius * proj.scale;
+            if (projRadius < 0.5) return;
+
+            // Calculate distance from camera for brightness
+            const brightness = Math.max(0.4, Math.min(1, 1000 / proj.depth));
+
+            // Draw sphere with gradient for 3D effect
+            const gradient = ctx.createRadialGradient(
+                proj.x - projRadius * 0.3,
+                proj.y - projRadius * 0.3,
+                projRadius * 0.1,
+                proj.x,
+                proj.y,
+                projRadius * 1.2
+            );
+
+            const lightness = 60 * brightness;
+            const darkLightness = 30 * brightness;
+
+            gradient.addColorStop(0, `hsl(${this.hue}, 80%, ${Math.min(lightness * 1.5, 85)}%)`);
+            gradient.addColorStop(0.6, `hsl(${this.hue}, 75%, ${lightness}%)`);
+            gradient.addColorStop(1, `hsl(${this.hue}, 70%, ${darkLightness}%)`);
+
+            ctx.beginPath();
+            ctx.arc(proj.x, proj.y, projRadius, 0, Math.PI * 2);
+            ctx.fillStyle = gradient;
+            ctx.fill();
+            ctx.strokeStyle = `rgba(255, 255, 255, ${0.3 * brightness})`;
+            ctx.lineWidth = 1;
+            ctx.stroke();
+
+            return proj;
+        }
+    }
+
+    function resolveOverlap(sphere1, sphere2) {
+        const dx = sphere2.x - sphere1.x;
+        const dy = sphere2.y - sphere1.y;
+        const dz = sphere2.z - sphere1.z;
+        const distance = Math.sqrt(dx * dx + dy * dy + dz * dz);
+
+        if (distance < sphere1.radius + sphere2.radius && distance > 0.001) {
+            // Calculate overlap amount
+            const overlap = sphere1.radius + sphere2.radius - distance;
+
+            // Calculate separation based on mass (heavier objects move less)
+            const totalMass = sphere1.mass + sphere2.mass;
+            const ratio1 = sphere2.mass / totalMass;
+            const ratio2 = sphere1.mass / totalMass;
+
+            // Normalize direction
+            const nx = dx / distance;
+            const ny = dy / distance;
+            const nz = dz / distance;
+
+            // Separate spheres proportionally to their mass
+            sphere1.x -= nx * overlap * ratio1;
+            sphere1.y -= ny * overlap * ratio1;
+            sphere1.z -= nz * overlap * ratio1;
+            sphere2.x += nx * overlap * ratio2;
+            sphere2.y += ny * overlap * ratio2;
+            sphere2.z += nz * overlap * ratio2;
+
+            return true;
+        }
+        return false;
+    }
+
+    function checkSphereCollision(sphere1, sphere2) {
+        const dx = sphere2.x - sphere1.x;
+        const dy = sphere2.y - sphere1.y;
+        const dz = sphere2.z - sphere1.z;
+        const distance = Math.sqrt(dx * dx + dy * dy + dz * dz);
+
+        if (distance < sphere1.radius + sphere2.radius && distance > 0.001) {
+            // Spheres are colliding
+            const nx = dx / distance;
+            const ny = dy / distance;
+            const nz = dz / distance;
+
+            // Relative velocity
+            const dvx = sphere1.vx - sphere2.vx;
+            const dvy = sphere1.vy - sphere2.vy;
+            const dvz = sphere1.vz - sphere2.vz;
+
+            // Relative velocity in collision normal direction
+            const dvn = dvx * nx + dvy * ny + dvz * nz;
+
+            // Do not resolve if velocities are separating
+            if (dvn > 0) return;
+
+            // Collision impulse
+            const m1 = sphere1.mass;
+            const m2 = sphere2.mass;
+            const impulse = (-(1 + RESTITUTION) * dvn) / (1/m1 + 1/m2);
+
+            // Apply impulse
+            sphere1.vx += (impulse * nx) / m1;
+            sphere1.vy += (impulse * ny) / m1;
+            sphere1.vz += (impulse * nz) / m1;
+            sphere2.vx -= (impulse * nx) / m2;
+            sphere2.vy -= (impulse * ny) / m2;
+            sphere2.vz -= (impulse * nz) / m2;
+        }
+    }
+
+    function addSphere() {
+        spheres.push(new Sphere());
+        sphereCountElement.textContent = spheres.length;
+    }
+
+    function animate() {
+        // Update camera position
+        updateCamera();
+
+        // Clear canvas
+        ctx.fillStyle = 'rgba(0, 0, 0, 1)';
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+        // Draw floor grid first (behind everything)
+        drawFloorGrid();
+
+        // Update all spheres
+        spheres.forEach(sphere => {
+            sphere.update();
+        });
+
+        // Handle collisions with velocity changes
+        for (let i = 0; i < spheres.length; i++) {
+            for (let j = i + 1; j < spheres.length; j++) {
+                checkSphereCollision(spheres[i], spheres[j]);
+            }
+        }
+
+        // Iteratively resolve overlaps (multiple passes for stability)
+        for (let iteration = 0; iteration < POSITION_CORRECTION_ITERATIONS; iteration++) {
+            let hasOverlaps = false;
+            for (let i = 0; i < spheres.length; i++) {
+                for (let j = i + 1; j < spheres.length; j++) {
+                    if (resolveOverlap(spheres[i], spheres[j])) {
+                        hasOverlaps = true;
+                    }
+                }
+            }
+            // If no overlaps found, we can stop early
+            if (!hasOverlaps) break;
+        }
+
+        // Sort spheres by depth from camera for proper rendering
+        const sortedSpheres = spheres.map(sphere => {
+            const proj = sphere.project();
+            return { sphere, depth: proj ? proj.depth : Infinity };
+        }).sort((a, b) => b.depth - a.depth);
+
+        // Draw all spheres
+        sortedSpheres.forEach(item => {
+            item.sphere.draw();
+        });
+
+        requestAnimationFrame(animate);
+    }
+
+    // Initialize spawn rate
+    updateSpawnRate();
+
+    // Start with 5 spheres
+    for (let i = 0; i < 5; i++) {
+        addSphere();
+    }
+
+    // Start animation
+    animate();
+</script>
+</body>
+</html>

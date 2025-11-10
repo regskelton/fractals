@@ -1,0 +1,189 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Moving Circles</title>
+    <style>
+        body {
+            margin: 0;
+            padding: 20px;
+            background-color: #1a1a1a;
+            font-family: Arial, sans-serif;
+            color: #ffffff;
+        }
+        #canvas {
+            display: block;
+            margin: 20px auto;
+            background-color: #000000;
+            border: 2px solid #444;
+        }
+        #info {
+            text-align: center;
+            margin-bottom: 10px;
+            font-size: 18px;
+        }
+    </style>
+</head>
+<body>
+<div id="info">Circles: <span id="circleCount">0</span></div>
+<canvas id="canvas" width="800" height="600"></canvas>
+
+<script>
+    const canvas = document.getElementById('canvas');
+    const ctx = canvas.getContext('2d');
+    const circleCountElement = document.getElementById('circleCount');
+
+    const circles = [];
+    let circleIdCounter = 0;
+    const GRAVITY = 0.3; // Gravity acceleration
+    const RESTITUTION = 0.7; // Coefficient of restitution for all collisions (0 = perfectly inelastic, 1 = perfectly elastic)
+
+    class Circle {
+        constructor() {
+            this.x = Math.random() * (canvas.width - 40) + 20;
+            this.y = Math.random() * (canvas.height / 2); // Start in upper half
+            this.radius = Math.random() * 15 + 10; // 10-25px radius
+            this.vx = (Math.random() - 0.5) * 4; // -2 to 2 pixels per frame
+            this.vy = Math.random() * -2; // Start with slight upward velocity
+            this.color = this.randomColor();
+            this.id = circleIdCounter++;
+            this.mass = Math.PI * this.radius * this.radius; // Mass proportional to area
+        }
+
+        randomColor() {
+            const hue = Math.random() * 360;
+            const saturation = Math.random() * 30 + 70; // 70-100%
+            const lightness = Math.random() * 30 + 50; // 50-80%
+            return `hsl(${hue}, ${saturation}%, ${lightness}%)`;
+        }
+
+        update() {
+            // Apply gravity
+            this.vy += GRAVITY;
+
+            this.x += this.vx;
+            this.y += this.vy;
+
+            // Bounce off walls with restitution
+            if (this.x - this.radius < 0) {
+                this.x = this.radius;
+                this.vx = Math.abs(this.vx) * RESTITUTION;
+            }
+            if (this.x + this.radius > canvas.width) {
+                this.x = canvas.width - this.radius;
+                this.vx = -Math.abs(this.vx) * RESTITUTION;
+            }
+            if (this.y - this.radius < 0) {
+                this.y = this.radius;
+                this.vy = Math.abs(this.vy) * RESTITUTION;
+            }
+            if (this.y + this.radius > canvas.height) {
+                this.y = canvas.height - this.radius;
+                this.vy = -Math.abs(this.vy) * RESTITUTION;
+            }
+
+            // Add friction on horizontal movement when on ground
+            if (this.y + this.radius >= canvas.height - 1) {
+                this.vx *= 0.98;
+            }
+        }
+
+        draw() {
+            ctx.beginPath();
+            ctx.arc(this.x, this.y, this.radius, 0, Math.PI * 2);
+            ctx.fillStyle = this.color;
+            ctx.fill();
+            ctx.strokeStyle = 'rgba(255, 255, 255, 0.3)';
+            ctx.lineWidth = 2;
+            ctx.stroke();
+        }
+    }
+
+    function checkCircleCollision(circle1, circle2) {
+        const dx = circle2.x - circle1.x;
+        const dy = circle2.y - circle1.y;
+        const distance = Math.sqrt(dx * dx + dy * dy);
+
+        if (distance < circle1.radius + circle2.radius) {
+            // Circles are colliding
+            const angle = Math.atan2(dy, dx);
+            const sin = Math.sin(angle);
+            const cos = Math.cos(angle);
+
+            // Rotate circle1's velocity
+            const vx1 = circle1.vx * cos + circle1.vy * sin;
+            const vy1 = circle1.vy * cos - circle1.vx * sin;
+
+            // Rotate circle2's velocity
+            const vx2 = circle2.vx * cos + circle2.vy * sin;
+            const vy2 = circle2.vy * cos - circle2.vx * sin;
+
+            // Inelastic collision with coefficient of restitution
+            const m1 = circle1.mass;
+            const m2 = circle2.mass;
+
+            const vx1Final = (m1 * vx1 + m2 * vx2 + m2 * RESTITUTION * (vx2 - vx1)) / (m1 + m2);
+            const vx2Final = (m1 * vx1 + m2 * vx2 + m1 * RESTITUTION * (vx1 - vx2)) / (m1 + m2);
+
+            // Update positions to prevent overlap
+            const overlap = circle1.radius + circle2.radius - distance;
+            const separationX = (overlap * dx) / distance;
+            const separationY = (overlap * dy) / distance;
+
+            circle1.x -= separationX / 2;
+            circle1.y -= separationY / 2;
+            circle2.x += separationX / 2;
+            circle2.y += separationY / 2;
+
+            // Rotate velocities back
+            circle1.vx = vx1Final * cos - vy1 * sin;
+            circle1.vy = vy1 * cos + vx1Final * sin;
+            circle2.vx = vx2Final * cos - vy2 * sin;
+            circle2.vy = vy2 * cos + vx2Final * sin;
+        }
+    }
+
+    function addCircle() {
+        circles.push(new Circle());
+        circleCountElement.textContent = circles.length;
+    }
+
+    function animate() {
+        // Clear canvas
+        ctx.fillStyle = 'rgba(0, 0, 0, 1)';
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+        // Update all circles
+        circles.forEach(circle => {
+            circle.update();
+        });
+
+        // Check collisions between all circles
+        for (let i = 0; i < circles.length; i++) {
+            for (let j = i + 1; j < circles.length; j++) {
+                checkCircleCollision(circles[i], circles[j]);
+            }
+        }
+
+        // Draw all circles
+        circles.forEach(circle => {
+            circle.draw();
+        });
+
+        requestAnimationFrame(animate);
+    }
+
+    // Add a new circle every 500ms
+    setInterval(addCircle, 500);
+
+    // Start with 5 circles
+    for (let i = 0; i < 5; i++) {
+        addCircle();
+    }
+
+    // Start animation
+    animate();
+</script>
+</body>
+</html>
